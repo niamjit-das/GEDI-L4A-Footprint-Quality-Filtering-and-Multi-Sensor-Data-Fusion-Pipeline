@@ -3,11 +3,9 @@
  // Study Area Matrix: 18,439.58 ha Landscape Boundary
 // Author: Niamjit Das
 // UPDATED: per-image sampling, optional buffer, configurable filters
-// =========================================================================
 
-// -------------------------------------------------------------------------
 // 0. CONFIGURATION (change these to trade sample size vs. data quality)
-// -------------------------------------------------------------------------
+
 var BUFFER_M        = 3000;          // buffer around MNP in metres (0 = strict boundary)
 var SE_RATIO_MAX    = 0.5;           // relative SE threshold: try 0.75 or 1.0 for more samples
 var REQUIRE_NON_DEGRADED = false;    // true = also require degrade_flag == 0 (stricter)
@@ -18,9 +16,9 @@ var S2_END          = '2021-03-31';  // (set to 2026 dates if you prefer your or
 var FOREST_NDVI     = 0.68;          // forest / non-forest threshold
 var EDGE_MAX_M      = 2000;          // max distance-to-edge radius
 
-// -------------------------------------------------------------------------
+
 // 1. Load and Delineate the Landscape (with optional buffer)
-// -------------------------------------------------------------------------
+
 var MNP = ee.FeatureCollection('projects/silent-window-479006-n4/assets/MNP_ShapeFile');
 var roi = BUFFER_M > 0 ? MNP.geometry().buffer(BUFFER_M) : MNP.geometry();
 
@@ -28,9 +26,9 @@ Map.centerObject(MNP, 11);
 Map.addLayer(roi, {color: 'orange'}, 'Sampling ROI (buffered)', false);
 Map.addLayer(MNP, {color: 'darkgreen'}, 'Madhupur Sal Forest Matrix');
 
-// -------------------------------------------------------------------------
+
 // 2. Load and Cloud-Mask Sentinel-2 Level-2A Surface Reflectance
-// -------------------------------------------------------------------------
+
 function maskS2clouds(image) {
   var qa = image.select('QA60');
   var cloudBitMask = 1 << 10;
@@ -49,9 +47,9 @@ var sentinel = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
   .median()
   .clip(roi);
 
-// -------------------------------------------------------------------------
+
 // 3. Vegetation Predictors
-// -------------------------------------------------------------------------
+
 var ndvi = sentinel.normalizedDifference(['B8', 'B4']).rename('NDVI');
 
 var evi = sentinel.expression(
@@ -65,9 +63,9 @@ var ndre  = sentinel.normalizedDifference(['B8', 'B5']).rename('NDRE');
 var swir1 = sentinel.select('B11').rename('B11');
 var swir2 = sentinel.select('B12').rename('B12');
 
-// -------------------------------------------------------------------------
+
 // 4. Continuous Euclidean Distance-to-Edge Predictor
-// -------------------------------------------------------------------------
+
 var forestMask = ndvi.gt(FOREST_NDVI);
 var nonForest  = forestMask.not();
 var distanceToEdge = nonForest
@@ -77,9 +75,9 @@ var distanceToEdge = nonForest
 
 var predictorStack = ndvi.addBands([evi, ndre, swir1, swir2, distanceToEdge]);
 
-// -------------------------------------------------------------------------
+
 // 5. GEDI L4A Monthly Rasters (25 m footprints) + Quality Mask
-// -------------------------------------------------------------------------
+
 var gediCol = ee.ImageCollection('LARSE/GEDI/GEDI04_A_002_MONTHLY')
   .filterBounds(roi)
   .filterDate(GEDI_START, GEDI_END);
@@ -98,10 +96,10 @@ var qualityMask = function(img) {
   return img.select(['agbd', 'agbd_se']).updateMask(mask);
 };
 
-// -------------------------------------------------------------------------
+
 // 6. Multi-Sensor Fusion: sample EACH monthly image separately
 //    (mosaic() would collapse repeat hits on the same pixel into one row)
-// -------------------------------------------------------------------------
+
 var perMonth = gediCol.map(function(img) {
   var g = qualityMask(img);
   return predictorStack.addBands(g)
@@ -126,9 +124,9 @@ var fusedDataset = perMonth.filter(ee.Filter.notNull(['agbd', 'NDVI']));
 print('Fused sample count', fusedDataset.size());
 print('Sample preview', fusedDataset.limit(5));
 
-// -------------------------------------------------------------------------
+
 // 7. Export CSV to Google Drive
-// -------------------------------------------------------------------------
+
 Export.table.toDrive({
   collection: fusedDataset,
   description: 'Gedi_Sentinel2_Landscape_Matrix_Fused',
@@ -137,9 +135,9 @@ Export.table.toDrive({
               'B11', 'B12', 'distance_to_edge', 'agbd', 'agbd_se']
 });
 
-// -------------------------------------------------------------------------
+
 // 8. Map Diagnostics
-// -------------------------------------------------------------------------
+
 var cleanGediDisplay = gediCol.map(qualityMask).mosaic().clip(roi);
 
 Map.addLayer(ndvi, {min: 0.2, max: 0.9, palette: ['yellow', 'green', 'darkgreen']}, 'NDVI Composite');
